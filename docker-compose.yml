@@ -15,5 +15,32 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  rabbitmq:
+    # The "-management" variant includes a web dashboard on port 15672
+    image: rabbitmq:4-management
+    container_name: flashforge-rabbitmq
+    # RabbitMQ stores its data under a folder named after the hostname.
+    # Fixing the hostname means queued messages survive container re-creation.
+    hostname: flashforge-rabbitmq
+    restart: unless-stopped
+
+    environment:
+      RABBITMQ_DEFAULT_USER: flashforge
+      RABBITMQ_DEFAULT_PASS: flashforge_dev
+
+    ports:
+      - "5672:5672"   # AMQP — the protocol our app speaks
+      - "15672:15672" # Management UI — http://localhost:15672
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  rabbitmq_data:
