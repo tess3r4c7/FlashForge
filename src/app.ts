@@ -5,7 +5,6 @@ import {
 } from "./routes/products.js";
 import { orderRoutes } from "./routes/orders.js";
 import { AppError } from "./lib/errors.js";
-import { closePublisher } from "./messaging/publisher.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -14,11 +13,9 @@ export function buildApp() {
     },
   });
 
-  // When the app shuts down (server stop, or app.close() in tests),
-  // close the RabbitMQ publisher connection too.
-  app.addHook("onClose", async () => {
-    await closePublisher();
-  });
+  // Note (Phase 4): the API no longer talks to RabbitMQ at all. Services
+  // write events to the OutboxEvent table inside their DB transactions, and
+  // the outbox relay in the worker process publishes them.
 
   // One place that turns errors into HTTP responses.
   //   AppError (thrown by our services)  → its own status + message

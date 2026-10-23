@@ -4,7 +4,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import { assertCanTransition } from "../domain/order-state-machine.js";
 import { releaseInventory, reserveInventory } from "./inventory.service.js";
 import { createEvent } from "../messaging/events.js";
-import { publishEventBestEffort } from "../messaging/publisher.js";
+import { enqueueEvent } from "../messaging/outbox.js";
 
 // --- Types ---
 
@@ -86,7 +86,7 @@ export async function createOrder(input: CreateOrderInput) {
   // Everything below runs inside a single database transaction.
   // If anything throws, ALL changes are rolled back automatically —
   // no partial reservations, no orphaned orders.
-  const order = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     // Step 1: Validate user exists
     const user = await tx.user.findUnique({
       where: { id: input.userId },
@@ -157,25 +157,25 @@ export async function createOrder(input: CreateOrderInput) {
       },
     });
 
+    // Step 6: Record the event in the outbox — SAME transaction.
+    // If the order commits, the event is guaranteed to exist; if anything
+    // above failed (e.g. out of stock), neither the order nor the event exist.
+    await enqueueEvent(
+      tx,
+      createEvent("order.created", {
+        orderId: order.id,
+        userId: order.userId,
+        totalAmountPaise: order.totalAmountPaise,
+        items: order.items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPricePaise: item.unitPricePaise,
+        })),
+      }),
+    );
+
     return order;
   });
-
-  // After COMMIT: announce it. Best effort — the order already exists, and
-  // failing the request now would make the client think it wasn't placed.
-  await publishEventBestEffort(
-    createEvent("order.created", {
-      orderId: order.id,
-      userId: order.userId,
-      totalAmountPaise: order.totalAmountPaise,
-      items: order.items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        unitPricePaise: item.unitPricePaise,
-      })),
-    }),
-  );
-
-  return order;
 }
 
 export async function getOrderById(orderId: number) {
@@ -202,7 +202,7 @@ export async function getOrderById(orderId: number) {
  * never end up with a cancelled order whose stock is still held.
  */
 export async function cancelOrder(orderId: number, userId: number) {
-  const cancelled = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const order = await getOrderForUser(tx, orderId, userId);
 
     if (order.status !== "INVENTORY_RESERVED") {
@@ -217,19 +217,18 @@ export async function cancelOrder(orderId: number, userId: number) {
       await releaseInventory(item.productId, item.quantity, tx);
     }
 
+    await enqueueEvent(
+      tx,
+      createEvent("order.cancelled", {
+        orderId,
+        userId,
+        reason: "Cancelled by user",
+      }),
+    );
+
     return tx.order.findUniqueOrThrow({
       where: { id: orderId },
       include: ORDER_DETAILS,
     });
   });
-
-  await publishEventBestEffort(
-    createEvent("order.cancelled", {
-      orderId,
-      userId,
-      reason: "Cancelled by user",
-    }),
-  );
-
-  return cancelled;
 }

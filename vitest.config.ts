@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { getTestDatabaseUrl } from "./tests/test-db.js";
 
 export default defineConfig({
   test: {
@@ -12,12 +13,21 @@ export default defineConfig({
     // our concurrency tests share a real database
     fileParallelism: false,
 
+    // Creates + migrates + wipes the test database once before all tests.
+    globalSetup: ["./tests/global-setup.ts"],
+
     env: {
+      // Tests use their own database (flashforge_test), see tests/test-db.ts.
+      // dotenv never overrides variables that are already set, so this wins
+      // over the DATABASE_URL in .env.
+      DATABASE_URL: getTestDatabaseUrl(),
       // Tests get their own RabbitMQ exchange + queues ("test.flashforge.events"),
       // so a dev worker running in another terminal can't steal test messages.
       RABBITMQ_PREFIX: "test.",
       // Hide the per-request info logs; warnings and errors still show.
       LOG_LEVEL: "warn",
+      // Poll the outbox quickly so async tests don't wait around.
+      OUTBOX_POLL_INTERVAL_MS: "50",
     },
   },
 });

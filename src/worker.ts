@@ -6,6 +6,8 @@ import { prisma } from "./lib/prisma.js";
 import type { ConsumerHandle } from "./messaging/consumer.js";
 import { startPaymentWorker } from "./workers/payment.worker.js";
 import { startNotificationWorker } from "./workers/notification.worker.js";
+import { startOutboxRelay, type RelayHandle } from "./messaging/outbox-relay.js";
+import { closePublisher } from "./messaging/publisher.js";
 
 // Entry point for the WORKER process — a separate program from the API.
 //
@@ -26,12 +28,19 @@ function onConnectionLost() {
 }
 
 let handles: ConsumerHandle[] = [];
+let relay: RelayHandle | null = null;
 
 try {
   handles = await Promise.all([
     startPaymentWorker(onConnectionLost),
     startNotificationWorker(onConnectionLost),
   ]);
+
+  // The outbox relay: moves events committed to the OutboxEvent table
+  // (by the API and by the workers themselves) to RabbitMQ. It lives here,
+  // not in the API, so the API never needs a RabbitMQ connection at all.
+  relay = startOutboxRelay();
+
   logger.info("Workers running. Press Ctrl+C to stop.");
 } catch (err) {
   logger.fatal({ err }, "Failed to start workers (is RabbitMQ running? `docker compose up -d`)");
@@ -46,7 +55,11 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   logger.info({ signal }, "Shutting down workers...");
 
+  // Stop consumers first: in-flight payments may still enqueue events
+  // (order.confirmed / order.cancelled) that the relay should get to see.
   await Promise.all(handles.map((h) => h.stop()));
+  await relay?.stop();
+  await closePublisher();
   await prisma.$disconnect();
 
   logger.info("Workers stopped cleanly");

@@ -96,3 +96,21 @@ model Payment {
 
   order         Order         @relation(fields: [orderId], references: [id])
 }
+
+// Transactional outbox (Phase 4).
+// Events are INSERTed here inside the same database transaction as the
+// business change (order created, payment requested, ...). A background
+// relay later publishes them to RabbitMQ and sets publishedAt.
+// If RabbitMQ is down, rows simply wait here — nothing is lost.
+model OutboxEvent {
+  id          String    @id @db.Uuid // = eventId of the event envelope
+  type        String // routing key, e.g. "payment.requested"
+  payload     Json
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime? // null = not yet published
+  attempts    Int       @default(0) // failed publish attempts
+  lastError   String?
+
+  // The relay's query is "WHERE publishedAt IS NULL ORDER BY createdAt"
+  @@index([publishedAt, createdAt])
+}

@@ -6,6 +6,8 @@ import { EXCHANGE, connectRabbitMQ } from "../src/messaging/rabbitmq.js";
 import type { ConsumerHandle } from "../src/messaging/consumer.js";
 import { startPaymentWorker } from "../src/workers/payment.worker.js";
 import { startNotificationWorker } from "../src/workers/notification.worker.js";
+import { startOutboxRelay } from "../src/messaging/outbox-relay.js";
+import { closePublisher } from "../src/messaging/publisher.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -51,12 +53,26 @@ export function waitForOrderStatus(
 }
 
 /**
- * Runs the real workers INSIDE the test process, consuming the test queues.
- * Same code as `npm run dev:worker`, so tests exercise the real pipeline:
- * HTTP → DB → RabbitMQ → worker → DB.
+ * Runs the real workers AND the outbox relay INSIDE the test process,
+ * consuming the test queues. Same code as `npm run dev:worker`, so tests
+ * exercise the real pipeline:
+ *   HTTP → DB (+ outbox row) → relay → RabbitMQ → worker → DB
+ *
+ * The returned handles all have `stop()`. The last one also closes the
+ * relay's publisher connection.
  */
 export async function startTestWorkers(): Promise<ConsumerHandle[]> {
-  return Promise.all([startPaymentWorker(), startNotificationWorker()]);
+  const consumers = await Promise.all([startPaymentWorker(), startNotificationWorker()]);
+  const relay = startOutboxRelay();
+  return [
+    ...consumers,
+    {
+      async stop() {
+        await relay.stop();
+        await closePublisher();
+      },
+    },
+  ];
 }
 
 /**

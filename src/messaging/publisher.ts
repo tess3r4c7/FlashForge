@@ -57,9 +57,15 @@ function getPublisher(): Promise<PublisherState> {
   return statePromise;
 }
 
+const PUBLISH_TIMEOUT_MS = 5_000;
+
 /**
  * Publishes an event and waits until RabbitMQ confirms it has stored it.
- * Throws if RabbitMQ is unreachable or rejects the message.
+ * Throws if RabbitMQ is unreachable, rejects the message, or doesn't
+ * confirm within 5 seconds.
+ *
+ * Since Phase 4 this is called ONLY by the outbox relay — services write
+ * events to the outbox table instead of publishing directly.
  *
  * Routing key = event.type, so "payment.requested" lands in the payments
  * queue and "order.*" events land in the notifications queue.
@@ -69,39 +75,40 @@ export async function publishEvent(event: DomainEvent): Promise<void> {
   const body = Buffer.from(JSON.stringify(event));
 
   await new Promise<void>((resolve, reject) => {
-    channel.publish(
-      EXCHANGE,
-      event.type,
-      body,
-      {
-        // persistent: written to disk, survives a broker restart
-        // (only works because the queues are also durable)
-        persistent: true,
-        contentType: "application/json",
-        messageId: event.eventId,
-        type: event.type,
-        timestamp: Math.floor(Date.now() / 1000),
-      },
-      (err) => (err ? reject(err) : resolve()),
+    // Never wait forever: the relay holds a DB transaction while publishing.
+    const timer = setTimeout(
+      () => reject(new Error(`Publish confirm timed out after ${PUBLISH_TIMEOUT_MS}ms`)),
+      PUBLISH_TIMEOUT_MS,
     );
+
+    try {
+      channel.publish(
+        EXCHANGE,
+        event.type,
+        body,
+        {
+          // persistent: written to disk, survives a broker restart
+          // (only works because the queues are also durable)
+          persistent: true,
+          contentType: "application/json",
+          messageId: event.eventId,
+          type: event.type,
+          timestamp: Math.floor(Date.now() / 1000),
+        },
+        (err) => {
+          clearTimeout(timer);
+          if (err) reject(err);
+          else resolve();
+        },
+      );
+    } catch (err) {
+      // publish() throws synchronously if the channel is already closed
+      clearTimeout(timer);
+      reject(err);
+    }
   });
 
   logger.debug({ eventType: event.type, eventId: event.eventId }, "Event published");
-}
-
-/**
- * For events where losing one is annoying but not harmful (e.g. "send a
- * confirmation email"). Logs the failure instead of failing the request.
- */
-export async function publishEventBestEffort(event: DomainEvent): Promise<void> {
-  try {
-    await publishEvent(event);
-  } catch (err) {
-    logger.error(
-      { err, eventType: event.type, eventId: event.eventId },
-      "Failed to publish event (best effort, continuing)",
-    );
-  }
 }
 
 /** Closes the publisher connection. Called on server shutdown. */
