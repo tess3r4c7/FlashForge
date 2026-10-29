@@ -33,7 +33,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  orders    Order[]
+  orders Order[]
 }
 
 model Product {
@@ -44,8 +44,8 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  inventory   Inventory?
-  orderItems  OrderItem[]
+  inventory  Inventory?
+  orderItems OrderItem[]
 }
 
 model Inventory {
@@ -55,7 +55,7 @@ model Inventory {
   reservedQuantity  Int      @default(0)
   updatedAt         DateTime @updatedAt
 
-  product           Product  @relation(fields: [productId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 }
 
 model Order {
@@ -66,35 +66,41 @@ model Order {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
-  user             User        @relation(fields: [userId], references: [id])
-  items            OrderItem[]
-  payment          Payment?
+  user    User        @relation(fields: [userId], references: [id])
+  items   OrderItem[]
+  payment Payment?
+
+  // Background jobs (Phase 5B) look for orders that have been in one status
+  // for too long: "WHERE status = 'INVENTORY_RESERVED' AND updatedAt < ...".
+  @@index([status, updatedAt])
 }
 
 model OrderItem {
-  id             Int     @id @default(autoincrement())
+  id             Int @id @default(autoincrement())
   orderId        Int
   productId      Int
   quantity       Int
   unitPricePaise Int
 
-  order          Order   @relation(fields: [orderId], references: [id])
-  product        Product @relation(fields: [productId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@index([orderId])
   @@index([productId])
 }
 
 model Payment {
-  id            Int           @id @default(autoincrement())
-  orderId       Int           @unique
-  status        PaymentStatus @default(PENDING)
-  amountPaise   Int
-  transactionId String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id               Int           @id @default(autoincrement())
+  orderId          Int           @unique
+  status           PaymentStatus @default(PENDING)
+  amountPaise      Int
+  transactionId    String?
+  // How many times the stuck-payment job has re-sent payment.requested (Phase 5B)
+  recoveryAttempts Int           @default(0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  order         Order         @relation(fields: [orderId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
 }
 
 // Transactional outbox (Phase 4).
@@ -113,4 +119,35 @@ model OutboxEvent {
 
   // The relay's query is "WHERE publishedAt IS NULL ORDER BY createdAt"
   @@index([publishedAt, createdAt])
+}
+
+// Idempotent consumers (Phase 5).
+// RabbitMQ + the outbox deliver "at least once", so the same event can
+// arrive twice. Before doing its work, a consumer inserts (consumer, eventId)
+// here in the same transaction. If the row already exists, it's a duplicate
+// and the work is skipped. The composite primary key does the deduplication.
+model ProcessedEvent {
+  consumer    String // e.g. "notification-worker"
+  eventId     String
+  processedAt DateTime @default(now())
+
+  @@id([consumer, eventId])
+  @@index([processedAt]) // for cleaning up old rows
+}
+
+// API idempotency keys (Phase 5B).
+// A client that retries POST /orders (timeout, flaky mobile network) sends
+// the same Idempotency-Key header. The first request stores its response
+// here, in the same transaction as the order; retries get that response back
+// instead of creating a second order.
+model IdempotencyKey {
+  userId         Int
+  key            String
+  requestHash    String // SHA-256 of the request body: same key + different body = client bug
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now())
+
+  @@id([userId, key]) // keys are scoped per user
+  @@index([createdAt]) // for cleaning up old keys
 }

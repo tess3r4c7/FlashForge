@@ -28,6 +28,9 @@ export default defineConfig({
       LOG_LEVEL: "warn",
       // Poll the outbox quickly so async tests don't wait around.
       OUTBOX_POLL_INTERVAL_MS: "50",
+      // Short back-off so retry/DLQ tests finish quickly (prod: 1s, 5s, 30s).
+      RETRY_DELAYS_MS: "100,200,400",
+      PAYMENT_GATEWAY_TRANSIENT_FAILURES: "0",
     },
   },
 });

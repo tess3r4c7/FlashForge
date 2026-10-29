@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   cancelOrder,
   createOrder,
+  createOrderIdempotent,
   getOrderById,
 } from "../services/order.service.js";
 import { requestPayment } from "../services/payment.service.js";
@@ -18,6 +19,10 @@ interface CreateOrderBody {
     productId: number;
     quantity: number;
   }[];
+}
+
+interface CreateOrderHeaders {
+  "idempotency-key"?: string;
 }
 
 interface OrderParams {
@@ -52,10 +57,21 @@ const orderActionBodySchema = {
 // --- Routes ---
 
 export async function orderRoutes(app: FastifyInstance) {
-  app.post<{ Body: CreateOrderBody }>(
+  // Optional header: Idempotency-Key: <client-generated unique string, e.g. a UUID>
+  //   Same key again (same user, same body) → the ORIGINAL 201 response is
+  //     returned, with header "Idempotent-Replayed: true". No second order.
+  //   Same key, different body → 422 (client bug).
+  //   No header → every request creates a new order (old behaviour).
+  app.post<{ Body: CreateOrderBody; Headers: CreateOrderHeaders }>(
     "/orders",
     {
       schema: {
+        headers: {
+          type: "object",
+          properties: {
+            "idempotency-key": { type: "string", minLength: 1, maxLength: 255 },
+          },
+        },
         body: {
           type: "object",
           required: ["userId", "items"],
@@ -102,8 +118,15 @@ export async function orderRoutes(app: FastifyInstance) {
         });
       }
 
-      const order = await createOrder(request.body);
-      return reply.status(201).send(order);
+      const idempotencyKey = request.headers["idempotency-key"];
+      if (idempotencyKey === undefined) {
+        const order = await createOrder(request.body);
+        return reply.status(201).send(order);
+      }
+
+      const result = await createOrderIdempotent(request.body, idempotencyKey);
+      if (result.replayed) reply.header("Idempotent-Replayed", "true");
+      return reply.status(result.statusCode).send(result.body);
     },
   );
 

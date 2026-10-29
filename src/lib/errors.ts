@@ -37,3 +37,13 @@ export class ConflictError extends AppError {
     super(409, message);
   }
 }
+
+/**
+ * 422 — the request is well-formed but semantically wrong, e.g. reusing an
+ * Idempotency-Key with a DIFFERENT request body (a client bug).
+ */
+export class UnprocessableEntityError extends AppError {
+  constructor(message: string) {
+    super(422, message);
+  }
+}

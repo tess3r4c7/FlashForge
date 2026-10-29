@@ -24,6 +24,7 @@
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "dlq": "tsx src/scripts/dlq.ts"
   }
 }

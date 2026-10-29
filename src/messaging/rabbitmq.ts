@@ -37,6 +37,62 @@ const BINDINGS: { queue: string; pattern: string }[] = [
   { queue: QUEUES.notifications, pattern: "order.*" },
 ];
 
+// ─── Retries with back-off + dead-letter queue (Phase 5) ─────────────
+//
+// When a handler fails, the consumer does NOT put the message straight back
+// on the main queue (that would retry it instantly, in a tight loop).
+// Instead it moves it to a RETRY queue that nobody consumes:
+//
+//   payments.process ──fail──► payments.process.retry.1000ms   (waits 1s)
+//          ▲                              │ TTL expires
+//          └──────── dead-lettered ───────┘ back to the main queue
+//
+// Each retry queue has:
+//   x-message-ttl           = the delay       ("expire messages after 1s")
+//   x-dead-letter-exchange  = ""              (the default exchange...)
+//   x-dead-letter-routing-key = main queue    (...which routes by queue name)
+// So RabbitMQ itself is our timer, and nothing is lost if a worker restarts
+// while a message is waiting.
+//
+// One retry queue PER DELAY (1s, 5s, 30s) instead of one queue with
+// per-message TTLs: RabbitMQ only expires messages at the HEAD of a queue,
+// so a 30s message in front would hold back a 1s message behind it.
+//
+// After the last retry, the message goes to the DEAD-LETTER QUEUE (".dlq"):
+// parked for a human to inspect and replay (see src/scripts/dlq.ts).
+
+function parseDelays(raw: string | undefined): number[] {
+  const delays = (raw ?? "1000,5000,30000")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return delays.length > 0 ? delays : [1000, 5000, 30000];
+}
+
+/** Delay before retry #1, #2, ... Total attempts = RETRY_DELAYS_MS.length + 1. */
+export const RETRY_DELAYS_MS = parseDelays(process.env.RETRY_DELAYS_MS);
+
+export const retryQueueName = (queue: string, delayMs: number) =>
+  `${queue}.retry.${delayMs}ms`;
+
+export const deadLetterQueueName = (queue: string) => `${queue}.dlq`;
+
+/** Declares a work queue together with its retry queues and its DLQ. */
+export async function assertWorkQueue(channel: Channel, queue: string): Promise<void> {
+  await channel.assertQueue(queue, { durable: true });
+
+  for (const delayMs of RETRY_DELAYS_MS) {
+    await channel.assertQueue(retryQueueName(queue, delayMs), {
+      durable: true,
+      messageTtl: delayMs,
+      deadLetterExchange: "",
+      deadLetterRoutingKey: queue,
+    });
+  }
+
+  await channel.assertQueue(deadLetterQueueName(queue), { durable: true });
+}
+
 /**
  * Declares the exchange, queues and bindings.
  *
@@ -52,7 +108,7 @@ export async function assertTopology(channel: Channel): Promise<void> {
   await channel.assertExchange(EXCHANGE, "topic", { durable: true });
 
   for (const { queue, pattern } of BINDINGS) {
-    await channel.assertQueue(queue, { durable: true });
+    await assertWorkQueue(channel, queue);
     await channel.bindQueue(queue, EXCHANGE, pattern);
   }
 }

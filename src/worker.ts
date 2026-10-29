@@ -8,6 +8,7 @@ import { startPaymentWorker } from "./workers/payment.worker.js";
 import { startNotificationWorker } from "./workers/notification.worker.js";
 import { startOutboxRelay, type RelayHandle } from "./messaging/outbox-relay.js";
 import { closePublisher } from "./messaging/publisher.js";
+import { startMaintenanceJobs, type JobHandle } from "./jobs/runner.js";
 
 // Entry point for the WORKER process — a separate program from the API.
 //
@@ -29,6 +30,7 @@ function onConnectionLost() {
 
 let handles: ConsumerHandle[] = [];
 let relay: RelayHandle | null = null;
+let jobs: JobHandle[] = [];
 
 try {
   handles = await Promise.all([
@@ -40,6 +42,10 @@ try {
   // (by the API and by the workers themselves) to RabbitMQ. It lives here,
   // not in the API, so the API never needs a RabbitMQ connection at all.
   relay = startOutboxRelay();
+
+  // Periodic safety nets (Phase 5B): expire unpaid reservations, recover
+  // stuck payments, delete old bookkeeping rows.
+  jobs = startMaintenanceJobs();
 
   logger.info("Workers running. Press Ctrl+C to stop.");
 } catch (err) {
@@ -58,6 +64,7 @@ async function shutdown(signal: string) {
   // Stop consumers first: in-flight payments may still enqueue events
   // (order.confirmed / order.cancelled) that the relay should get to see.
   await Promise.all(handles.map((h) => h.stop()));
+  await Promise.all(jobs.map((j) => j.stop()));
   await relay?.stop();
   await closePublisher();
   await prisma.$disconnect();

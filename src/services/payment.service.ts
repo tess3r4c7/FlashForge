@@ -3,7 +3,7 @@ import { logger } from "../lib/logger.js";
 import { ConflictError } from "../lib/errors.js";
 import { createEvent } from "../messaging/events.js";
 import { enqueueEvent } from "../messaging/outbox.js";
-import { chargePayment, type ChargeResult } from "./payment-gateway.js";
+import { chargePayment } from "./payment-gateway.js";
 import { confirmReservation, releaseInventory } from "./inventory.service.js";
 import { getOrderForUser, transitionOrderStatus } from "./order.service.js";
 
@@ -100,64 +100,77 @@ export async function processPayment(orderId: number): Promise<PaymentOutcome> {
   }
 
   // ── Step 2: the slow external call (no transaction, no locks) ──
-  let result: ChargeResult;
-  try {
-    result = await chargePayment({
-      orderId,
-      amountPaise: order.totalAmountPaise,
-    });
-  } catch {
-    // Treated as a decline so the stock is released. A real system would
-    // first ask the gateway whether the charge went through (Phase 5).
-    result = { success: false, reason: "Payment gateway error" };
-  }
+  //
+  // Phase 5: if the gateway times out, we let the error PROPAGATE. The
+  // consumer then retries this message with back-off (1s, 5s, 30s), and every
+  // retry sends the SAME idempotency key, so a charge that secretly went
+  // through the first time is never repeated. (Phase 3/4 treated a timeout
+  // as a decline, which could cancel an order the customer had paid for.)
+  // A decline is NOT an error: it's a definite answer, handled below.
+  const result = await chargePayment({
+    orderId,
+    amountPaise: order.totalAmountPaise,
+    idempotencyKey: `payment-${order.payment.id}`,
+  });
 
   // ── Step 3: record the outcome + its event atomically ──
-  await prisma.$transaction(async (tx) => {
-    if (result.success) {
-      await transitionOrderStatus(tx, orderId, "PAYMENT_PROCESSING", "CONFIRMED");
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (result.success) {
+        await transitionOrderStatus(tx, orderId, "PAYMENT_PROCESSING", "CONFIRMED");
 
-      await tx.payment.update({
-        where: { orderId },
-        data: { status: "SUCCESS", transactionId: result.transactionId },
-      });
+        await tx.payment.update({
+          where: { orderId },
+          data: { status: "SUCCESS", transactionId: result.transactionId },
+        });
 
-      // Reserved units are now sold
-      for (const item of order.items) {
-        await confirmReservation(item.productId, item.quantity, tx);
+        // Reserved units are now sold
+        for (const item of order.items) {
+          await confirmReservation(item.productId, item.quantity, tx);
+        }
+
+        await enqueueEvent(
+          tx,
+          createEvent("order.confirmed", {
+            orderId,
+            userId: order.userId,
+            transactionId: result.transactionId,
+          }),
+        );
+      } else {
+        await transitionOrderStatus(tx, orderId, "PAYMENT_PROCESSING", "CANCELLED");
+
+        await tx.payment.update({
+          where: { orderId },
+          data: { status: "FAILED" },
+        });
+
+        // Compensation: put the units back on sale
+        for (const item of order.items) {
+          await releaseInventory(item.productId, item.quantity, tx);
+        }
+
+        await enqueueEvent(
+          tx,
+          createEvent("order.cancelled", {
+            orderId,
+            userId: order.userId,
+            reason: result.reason,
+          }),
+        );
       }
-
-      await enqueueEvent(
-        tx,
-        createEvent("order.confirmed", {
-          orderId,
-          userId: order.userId,
-          transactionId: result.transactionId,
-        }),
-      );
-    } else {
-      await transitionOrderStatus(tx, orderId, "PAYMENT_PROCESSING", "CANCELLED");
-
-      await tx.payment.update({
-        where: { orderId },
-        data: { status: "FAILED" },
-      });
-
-      // Compensation: put the units back on sale
-      for (const item of order.items) {
-        await releaseInventory(item.productId, item.quantity, tx);
-      }
-
-      await enqueueEvent(
-        tx,
-        createEvent("order.cancelled", {
-          orderId,
-          userId: order.userId,
-          reason: result.reason,
-        }),
-      );
+    });
+  } catch (err) {
+    // Two copies of the same message were processed at the same time; both
+    // passed the guard above, both got the SAME gateway result (same key),
+    // and the other one committed first. Our conditional UPDATE matched 0
+    // rows. Nothing to do: the outcome is already recorded.
+    if (err instanceof ConflictError) {
+      logger.info({ orderId }, "Payment outcome already recorded by a concurrent delivery; skipping");
+      return "SKIPPED";
     }
-  });
+    throw err;
+  }
 
   return result.success ? "CONFIRMED" : "CANCELLED";
 }

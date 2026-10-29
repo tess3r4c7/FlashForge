@@ -44,7 +44,7 @@ export default async function setup() {
   try {
     await db.query(`
       TRUNCATE "Payment", "OrderItem", "Order", "Inventory", "Product",
-               "OutboxEvent", "User"
+               "OutboxEvent", "ProcessedEvent", "IdempotencyKey", "User"
       RESTART IDENTITY CASCADE
     `);
     await db.query(`
