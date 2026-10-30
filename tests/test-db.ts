@@ -21,3 +21,16 @@ export function getTestDatabaseUrl(): string {
   url.pathname = "/flashforge_test";
   return url.toString();
 }
+
+/**
+ * Same idea for Redis (Phase 6): tests use logical database 1, dev uses 0.
+ * global-setup.ts runs FLUSHDB on it, so it must never be the dev database.
+ */
+export function getTestRedisUrl(): string {
+  if (process.env.TEST_REDIS_URL) return process.env.TEST_REDIS_URL;
+
+  const url = new URL(process.env.REDIS_URL ?? "redis://localhost:6379");
+  url.pathname = "/1";
+  return url.toString();
+}
+

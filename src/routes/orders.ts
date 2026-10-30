@@ -6,6 +6,8 @@ import {
   getOrderById,
 } from "../services/order.service.js";
 import { requestPayment } from "../services/payment.service.js";
+import { rateLimit } from "../middleware/rate-limit.js";
+import type { RateLimitOptions } from "../lib/rate-limiter.js";
 
 // Errors thrown by services (NotFoundError, ConflictError, ...) are turned
 // into HTTP responses by the global error handler in app.ts — so the route
@@ -56,7 +58,18 @@ const orderActionBodySchema = {
 
 // --- Routes ---
 
-export async function orderRoutes(app: FastifyInstance) {
+export interface OrderRoutesOptions {
+  /** Per-user limit for creating and paying orders; `false` disables it. */
+  rateLimit: RateLimitOptions | false;
+}
+
+export async function orderRoutes(app: FastifyInstance, opts: OrderRoutesOptions) {
+  // Flash-sale protection (Phase 6): the two WRITE endpoints are limited per
+  // user, each with its own bucket. Reads (GET /orders/:id) are not limited:
+  // clients poll it while a payment is processing.
+  const createLimit = opts.rateLimit ? [rateLimit("orders:create", opts.rateLimit)] : [];
+  const payLimit = opts.rateLimit ? [rateLimit("orders:pay", opts.rateLimit)] : [];
+
   // Optional header: Idempotency-Key: <client-generated unique string, e.g. a UUID>
   //   Same key again (same user, same body) → the ORIGINAL 201 response is
   //     returned, with header "Idempotent-Replayed: true". No second order.
@@ -65,6 +78,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post<{ Body: CreateOrderBody; Headers: CreateOrderHeaders }>(
     "/orders",
     {
+      preHandler: createLimit,
       schema: {
         headers: {
           type: "object",
@@ -146,6 +160,7 @@ export async function orderRoutes(app: FastifyInstance) {
   app.post<{ Params: OrderParams; Body: OrderActionBody }>(
     "/orders/:id/pay",
     {
+      preHandler: payLimit,
       schema: {
         params: orderParamsSchema,
         body: orderActionBodySchema,

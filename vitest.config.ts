@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { getTestDatabaseUrl } from "./tests/test-db.js";
+import { getTestDatabaseUrl, getTestRedisUrl } from "./tests/test-db.js";
 
 export default defineConfig({
   test: {
@@ -31,6 +31,12 @@ export default defineConfig({
       // Short back-off so retry/DLQ tests finish quickly (prod: 1s, 5s, 30s).
       RETRY_DELAYS_MS: "100,200,400",
       PAYMENT_GATEWAY_TRANSIENT_FAILURES: "0",
+      // Redis logical database 1 (dev uses 0), flushed in global-setup.ts.
+      REDIS_URL: getTestRedisUrl(),
+      // Effectively no rate limit, so the concurrency tests (dozens of orders
+      // from user 1 at once) aren't throttled. phase6.test.ts builds apps
+      // with explicit small limits to test the limiter itself.
+      RATE_LIMIT_MAX: "1000000",
     },
   },
 });

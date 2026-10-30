@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   createProduct,
+  getProductById,
   getProducts,
 } from "../services/product.service.js";
 
@@ -14,6 +15,22 @@ interface CreateProductBody {
 }
 
 export async function productRoutes(app: FastifyInstance) {
+  // Served from the Redis cache when possible (see product.service.ts)
+  app.get<{ Params: { id: number } }>(
+    "/products/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "integer", minimum: 1 } },
+        },
+      },
+    },
+    async (request) => {
+      return getProductById(request.params.id);
+    },
+  );
   app.get("/products", async () => {
     return getProducts();
   });

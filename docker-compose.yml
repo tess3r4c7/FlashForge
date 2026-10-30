@@ -41,6 +41,26 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: flashforge-redis
+    restart: unless-stopped
+    # --appendonly no / --save "": everything we keep in Redis (rate-limit
+    # counters, cached products, cached idempotent responses) is disposable.
+    # Postgres stays the source of truth, so Redis needs no persistence.
+    # maxmemory + allkeys-lru: if memory fills up, evict the least recently
+    # used keys instead of erroring - correct behaviour for a cache.
+    command: >
+      redis-server --save "" --appendonly no
+      --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
   rabbitmq_data:

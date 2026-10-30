@@ -5,8 +5,16 @@ import {
 } from "./routes/products.js";
 import { orderRoutes } from "./routes/orders.js";
 import { AppError } from "./lib/errors.js";
+import { closeRedis, connectRedis, isRedisReady } from "./lib/redis.js";
+import type { RateLimitOptions } from "./lib/rate-limiter.js";
+import { rateLimitFromEnv } from "./middleware/rate-limit.js";
 
-export function buildApp() {
+export interface BuildAppOptions {
+  /** Per-user limit on order writes. Defaults to RATE_LIMIT_MAX / RATE_LIMIT_WINDOW_MS; `false` disables. */
+  rateLimit?: RateLimitOptions | false;
+}
+
+export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? "info",
@@ -37,14 +45,25 @@ export function buildApp() {
     return reply.status(statusCode).send({ error: error.message });
   });
 
+  // Redis (Phase 6) powers rate limiting and caching. It's optional at
+  // runtime: connectRedis() never throws, and every Redis feature fails open.
+  app.addHook("onReady", async () => {
+    await connectRedis();
+  });
+  app.addHook("onClose", async () => {
+    await closeRedis();
+  });
+
   app.get("/health", async () => {
     return {
       status: "ok",
+      // "down" = degraded, not broken: no rate limiting / caching until it returns.
+      redis: isRedisReady() ? "up" : "down",
     };
   });
 
   app.register(productRoutes);
-  app.register(orderRoutes);
+  app.register(orderRoutes, { rateLimit: options.rateLimit ?? rateLimitFromEnv() });
   app.register(testReserveRoute);
 
   return app;

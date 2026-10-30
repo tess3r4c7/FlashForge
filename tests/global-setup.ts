@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import pg from "pg";
-import { getTestDatabaseUrl } from "./test-db.js";
+import { Redis } from "ioredis";
+import { getTestDatabaseUrl, getTestRedisUrl } from "./test-db.js";
 
 /**
  * Runs ONCE before the whole test run (not per file), in the main Vitest
@@ -10,6 +11,7 @@ import { getTestDatabaseUrl } from "./test-db.js";
  *   2. prisma migrate deploy             (apply all migrations, non-interactive)
  *   3. TRUNCATE every table              (start from a known empty state)
  *   4. insert user #1                    (the tests place orders as user 1)
+ *   5. FLUSHDB the test Redis database   (no cached products / rate-limit counters)
  */
 export default async function setup() {
   const testUrl = getTestDatabaseUrl();
@@ -55,5 +57,15 @@ export default async function setup() {
     await db.query(`SELECT setval(pg_get_serial_sequence('"User"', 'id'), 1)`);
   } finally {
     await db.end();
+  }
+
+  // 5. Redis DB 1 is only used by tests (see vitest.config.ts), so it's safe
+  //    to wipe. Stale cache entries would point at product ids that the
+  //    TRUNCATE above just reset.
+  const redis = new Redis(getTestRedisUrl());
+  try {
+    await redis.flushdb();
+  } finally {
+    redis.disconnect();
   }
 }
