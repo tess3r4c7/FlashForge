@@ -27,6 +27,10 @@
     "start:worker": "node dist/worker.js",
     "test": "vitest",
     "test:run": "vitest run",
-    "dlq": "tsx src/scripts/dlq.ts"
+    "dlq": "tsx src/scripts/dlq.ts",
+    "loadtest:flash": "k6 run loadtest/flash-sale.js",
+    "loadtest:sustained": "k6 run loadtest/sustained.js -e DURATION=2m",
+    "loadtest:mixed": "k6 run loadtest/mixed.js -e DURATION=1m",
+    "loadtest:verify": "k6 run loadtest/verify.js"
   }
 }
