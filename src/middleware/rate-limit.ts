@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import { hitRateLimit, type RateLimitOptions } from "../lib/rate-limiter.js";
+import { rateLimitHitsTotal } from "../lib/metrics.js";
 
 /** Defaults, overridable per deployment: 5 requests per 10s per user. */
 export function rateLimitFromEnv(): RateLimitOptions {
@@ -47,6 +48,7 @@ export function rateLimit(bucket: string, opts: RateLimitOptions): preHandlerAsy
 
     if (!result.allowed) {
       const retryAfterSec = Math.ceil(result.retryAfterMs / 1000);
+      rateLimitHitsTotal.inc({ bucket });
       request.log.info({ bucket, retryAfterSec }, "Rate limit exceeded");
       reply.header("Retry-After", retryAfterSec);
       return reply.status(429).send({

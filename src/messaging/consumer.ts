@@ -1,6 +1,7 @@
 import type { ConsumeMessage, Options } from "amqplib";
 import { logger } from "../lib/logger.js";
 import type { DomainEvent } from "./events.js";
+import { createContext, runWithContext } from "../lib/context.js";
 import {
   RETRY_DELAYS_MS,
   assertWorkQueue,
@@ -181,19 +182,28 @@ export async function startConsumer(
       return;
     }
 
-    const eventLog = log.child({
-      eventType: event.type,
-      eventId: event.eventId,
-      attempt,
-      redelivered: msg.fields.redelivered,
-    });
+    // Phase 7: inherit the correlation ID from the event (which was set by the
+    // HTTP request that created it), so every log line in the worker carries
+    // the same ID and you can grep for the full journey across processes.
+    const ctx = createContext(event.correlationId);
 
-    try {
-      await handle(event);
-      settle(() => channel.ack(msg));
-    } catch (err) {
-      await routeFailure(msg, attempt, err, eventLog);
-    }
+    await runWithContext(ctx, async () => {
+      const eventLog = log.child({
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        eventType: event.type,
+        eventId: event.eventId,
+        attempt,
+        redelivered: msg.fields.redelivered,
+      });
+
+      try {
+        await handle(event);
+        settle(() => channel.ack(msg));
+      } catch (err) {
+        await routeFailure(msg, attempt, err, eventLog);
+      }
+    });
   }
 
   // noAck: false → WE decide when a message is done (manual acknowledgement).

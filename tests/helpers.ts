@@ -118,7 +118,7 @@ export async function captureEvents() {
  * than making real HTTP calls.
  */
 export function buildTestApp() {
-  return buildApp();
+  return buildApp({ disableMetrics: true });
 }
 
 /**

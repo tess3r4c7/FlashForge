@@ -1,5 +1,6 @@
 import { getRedis } from "./redis.js";
 import { logger } from "./logger.js";
+import { cacheHitsTotal, cacheMissesTotal } from "./metrics.js";
 
 // ─── Read-through cache (Redis) ─────────────────────────────────────────────
 //
@@ -43,7 +44,10 @@ export async function cached<T>(key: string, ttlSeconds: number, loader: () => P
 
   try {
     const hit = await redis.get(key);
-    if (hit !== null) return JSON.parse(hit) as T;
+    if (hit !== null) {
+      cacheHitsTotal.inc({ key_prefix: key.split(":").slice(0, 2).join(":") });
+      return JSON.parse(hit) as T;
+    }
   } catch (err) {
     logger.debug({ err: (err as Error).message, key }, "Cache read failed - falling back to DB");
   }
@@ -53,6 +57,7 @@ export async function cached<T>(key: string, ttlSeconds: number, loader: () => P
 
   const load = (async () => {
     try {
+      cacheMissesTotal.inc({ key_prefix: key.split(":").slice(0, 2).join(":") });
       const value = JSON.parse(JSON.stringify(await loader())) as T;
       try {
         await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);

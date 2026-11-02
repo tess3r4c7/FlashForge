@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getRequestContext } from "../lib/context.js";
 
 // ─── What is an event? ───────────────────────────────────────────────
 // A small JSON message describing something that ALREADY HAPPENED
@@ -14,6 +15,8 @@ interface EventEnvelope<TType extends string, TPayload> {
   type: TType;
   /** ISO timestamp of when the event was created. */
   occurredAt: string;
+  /** Traces the event back to the HTTP request that started it (Phase 7). */
+  correlationId?: string;
   payload: TPayload;
 }
 
@@ -72,6 +75,11 @@ export function createEvent<T extends EventType>(
     eventId: randomUUID(),
     type,
     occurredAt: new Date().toISOString(),
+    // Automatically attach the correlation ID from the current request
+    // context (AsyncLocalStorage). When this event is consumed, the consumer
+    // picks it up and sets its own context, so every log line in the worker
+    // carries the same correlation ID as the original HTTP request.
+    correlationId: getRequestContext()?.correlationId,
     payload,
   } as Extract<DomainEvent, { type: T }>;
 }

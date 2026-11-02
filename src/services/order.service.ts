@@ -6,6 +6,7 @@ import { releaseInventory, reserveInventory } from "./inventory.service.js";
 import { createEvent } from "../messaging/events.js";
 import { enqueueEvent } from "../messaging/outbox.js";
 import { hashRequest, withIdempotencyKey } from "./idempotency.service.js";
+import { ordersCreatedTotal } from "../lib/metrics.js";
 
 // --- Types ---
 
@@ -87,7 +88,9 @@ export async function createOrder(input: CreateOrderInput) {
   // Everything runs inside a single database transaction.
   // If anything throws, ALL changes are rolled back automatically â€”
   // no partial reservations, no orphaned orders.
-  return prisma.$transaction((tx) => createOrderInTx(tx, input));
+  const order = await prisma.$transaction((tx) => createOrderInTx(tx, input));
+  ordersCreatedTotal.inc();
+  return order;
 }
 
 /**

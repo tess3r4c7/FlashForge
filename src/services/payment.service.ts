@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import { logger } from "../lib/logger.js";
 import { ConflictError } from "../lib/errors.js";
+import { paymentsProcessedTotal } from "../lib/metrics.js";
 import { createEvent } from "../messaging/events.js";
 import { enqueueEvent } from "../messaging/outbox.js";
 import { chargePayment } from "./payment-gateway.js";
@@ -96,6 +97,7 @@ export async function processPayment(orderId: number): Promise<PaymentOutcome> {
       { orderId, status: order?.status, paymentStatus: order?.payment?.status },
       "Payment already handled or order missing; skipping",
     );
+    paymentsProcessedTotal.inc({ outcome: "SKIPPED" });
     return "SKIPPED";
   }
 
@@ -172,5 +174,7 @@ export async function processPayment(orderId: number): Promise<PaymentOutcome> {
     throw err;
   }
 
-  return result.success ? "CONFIRMED" : "CANCELLED";
+  const outcome = result.success ? "CONFIRMED" : "CANCELLED";
+  paymentsProcessedTotal.inc({ outcome });
+  return outcome;
 }

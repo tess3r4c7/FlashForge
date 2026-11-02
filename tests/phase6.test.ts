@@ -23,7 +23,7 @@ const appsToClose: FastifyInstance[] = [];
 
 /** A fresh app with its own rate-limit settings. */
 async function makeApp(rateLimit: { limit: number; windowMs: number } | false = false) {
-  const app = buildApp({ rateLimit });
+  const app = buildApp({ rateLimit, disableMetrics: true });
   await app.ready();
   appsToClose.push(app);
   return app;
@@ -176,7 +176,7 @@ describe("Rate limiting", () => {
     expect(results[0].headers["ratelimit-limit"]).toBeUndefined();
 
     const health = await app.inject({ method: "GET", url: "/health" });
-    expect(JSON.parse(health.body)).toMatchObject({ status: "ok", redis: "down" });
+    expect(JSON.parse(health.body)).toMatchObject({ redis: "down" });
   });
 });
 

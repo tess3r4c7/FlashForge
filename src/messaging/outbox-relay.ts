@@ -3,6 +3,7 @@ import { logger } from "../lib/logger.js";
 import type { DomainEvent } from "./events.js";
 import { rowToEvent } from "./outbox.js";
 import { publishEvent } from "./publisher.js";
+import { outboxPublishedTotal, outboxPendingGauge } from "../lib/metrics.js";
 
 // ─── The transactional outbox, relay side ────────────────────────────
 //
@@ -82,6 +83,7 @@ export async function relayBatch(
         try {
           await publish(rowToEvent(row));
           publishedIds.push(row.id);
+          outboxPublishedTotal.inc();
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
 
