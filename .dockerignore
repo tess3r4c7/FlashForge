@@ -1,0 +1,19 @@
+# Keep the build context small and secret-free. Anything listed here is never
+# sent to the Docker daemon, so it can't end up in an image layer.
+node_modules
+dist
+coverage
+src/generated
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+loadtest/results
+.agents
+.claude
+.windsurf
+Dockerfile
+docker-compose*.yml
+

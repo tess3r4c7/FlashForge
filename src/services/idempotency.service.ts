@@ -37,7 +37,25 @@ export interface IdempotentResult<T> {
 
 /** Stable fingerprint of the request, to catch "same key, different request". */
 export function hashRequest(body: unknown): string {
-  return createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  return createHash("sha256").update(canonicalJson(body)).digest("hex");
+}
+
+// JSON.stringify keeps keys in insertion order, i.e. the order the CLIENT
+// wrote them. A retry that serialises {"items":..,"userId":1} instead of
+// {"userId":1,"items":..} (different HTTP library, a rebuilt object) is the
+// same request, yet would hash differently and get a 422. So object keys are
+// sorted, recursively. Array order is kept: [a, b] and [b, a] are different
+// values. (Found by the Phase 9 unit tests.)
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.keys(value)
+      .sort()
+      .filter((k) => (value as Record<string, unknown>)[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 /**

@@ -1,0 +1,171 @@
+# ─── FlashForge CI ───────────────────────────────────────────────────────────
+#
+#   checks ──► integration ──► image
+#   (~1 min)    (~2 min)        (build always, push only on main)
+#
+# Ordered cheapest-first: a type error or a broken state machine fails in
+# about a minute, before CI spends time starting Postgres/RabbitMQ/Redis.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch/PR cancels the old run instead of queueing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── 1. Type-check + unit tests (no services) ──────────────────────────────
+  checks:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci: exact versions from package-lock.json, fails if it's out of sync.
+      - run: npm ci
+
+      # src/generated/prisma is git-ignored, so every job must generate it.
+      # generate never connects; the config just needs some DATABASE_URL.
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - run: npm run typecheck
+
+      - run: npm run test:unit
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+  # ─── 2. Integration tests against real infrastructure ──────────────────────
+  # Same images as docker-compose.yml, as GitHub "service containers".
+  # The test DB (flashforge_test) is derived from DATABASE_URL and
+  # created + migrated by tests/global-setup.ts, exactly like locally.
+  integration:
+    name: Integration tests + coverage
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: flashforge
+          POSTGRES_PASSWORD: flashforge_dev
+          POSTGRES_DB: flashforge
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flashforge"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+      rabbitmq:
+        image: rabbitmq:4
+        env:
+          RABBITMQ_DEFAULT_USER: flashforge
+          RABBITMQ_DEFAULT_PASS: flashforge_dev
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://flashforge:flashforge_dev@localhost:5432/flashforge
+      RABBITMQ_URL: amqp://flashforge:flashforge_dev@localhost:5672
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run db:generate
+
+      # Both projects, so the coverage report includes unit + integration.
+      - run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  # ─── 3. Build the image (push to GHCR on main only) ────────────────────────
+  # PRs prove the Dockerfile still builds; main publishes images tagged with
+  # the commit SHA (immutable, traceable) and "latest".
+  image:
+    name: Docker image
+    needs: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR image names must be lowercase.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Build (and push) runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: ${{ env.PUSH == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build (and push) migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          push: ${{ env.PUSH == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}-migrate:${{ github.sha }}
+            ${{ env.IMAGE }}-migrate:latest
+          cache-from: type=gha
+

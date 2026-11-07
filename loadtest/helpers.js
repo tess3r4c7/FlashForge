@@ -64,25 +64,14 @@ export function getMetrics() {
 }
 
 // ─── Validation ─────────────────────────────────────────────────────────────
-// After the load test, check that inventory was never oversold.
-// This is called from each scenario's teardown().
+// k6 cannot prove "no overselling" on its own: stock levels are deliberately
+// not exposed over HTTP, and VUs can't share counters back into teardown().
+// The k6 counters (orders_accepted / orders_rejected) are one witness; the
+// authoritative check is loadtest/verify-db.ts, which reads Postgres directly
+// and cross-checks the Inventory counters against the Order rows.
+// run.ps1 runs it automatically after every scenario.
 
-export function validateInventory(productId, originalStock, data) {
-  // We can't query the DB directly from k6, but the /products endpoint
-  // shows us the product. We'll also check how many orders succeeded.
-  const successfulOrders = data ? data.successfulOrders : 0;
-
-  console.log(`\n──── Inventory Validation ────`);
-  console.log(`Product ID:       ${productId}`);
-  console.log(`Original stock:   ${originalStock}`);
-  console.log(`Successful orders: ${successfulOrders}`);
-
-  if (successfulOrders > originalStock) {
-    console.error(`❌ OVERSOLD! ${successfulOrders} orders created but only ${originalStock} units existed.`);
-  } else {
-    console.log(`✅ No overselling: ${successfulOrders} ≤ ${originalStock}`);
-    console.log(`Remaining stock: ${originalStock - successfulOrders} units`);
-  }
-  console.log(`─────────────────────────────\n`);
+export function printVerifyHint(productId, stock, expectAccepted) {
+  const expect = expectAccepted === undefined ? "" : ` --expect-accepted ${expectAccepted}`;
+  console.log(`\nVerify in Postgres:  npx tsx loadtest/verify-db.ts --product ${productId} --stock ${stock}${expect}\n`);
 }
-

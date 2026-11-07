@@ -1,6 +1,6 @@
 // ─── Scenario 2: Sustained Load ─────────────────────────────────────────────
 //
-// A steady stream of orders over 2 minutes, watching for:
+// A steady stream of orders (default 2 minutes, -e DURATION=30s to shorten), watching for:
 //   - Memory leaks (heap grows without bound)
 //   - Connection pool exhaustion (latency spikes as requests queue)
 //   - Error rate creep (errors that only show up after many requests)
@@ -10,7 +10,7 @@
 
 import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
-import { createProduct, placeOrder, payOrder, getOrder, getProducts } from "./helpers.js";
+import { createProduct, placeOrder, payOrder, printVerifyHint } from "./helpers.js";
 
 const ordersCreated = new Counter("orders_created");
 const ordersPaid = new Counter("orders_paid");
@@ -73,6 +73,7 @@ export default function (data) {
 export function teardown(data) {
   console.log(`\n📊 Sustained load complete.`);
   console.log(`Product #${data.productId}, ${data.stock} original stock.`);
-  console.log(`Check k6 summary for orders_created, orders_paid, and latency percentiles.\n`);
+  console.log(`Check k6 summary for orders_created, orders_paid, and latency percentiles.`);
+  printVerifyHint(data.productId, data.stock);
 }
 

@@ -108,6 +108,33 @@ describe("POST /orders — Idempotency-Key header", () => {
     expect(second.body.error).toContain("different request body");
   });
 
+  // Regression (found by tests/unit/idempotency-hash.test.ts): the request
+  // hash used to depend on JSON key order, so this retry got a 422.
+  it("same key + same body with keys in a different order → replay, not 422", async () => {
+    const productId = await createTestProduct(10);
+    testProductIds.push(productId);
+    const key = `idem-reorder-${Date.now()}`;
+
+    // Raw strings so we control the exact byte order on the wire.
+    const send = (body: string) =>
+      app.inject({
+        method: "POST",
+        url: "/orders",
+        payload: body,
+        headers: { "content-type": "application/json", "idempotency-key": key },
+      });
+
+    const first = await send(`{"userId":${USER_ID},"items":[{"productId":${productId},"quantity":1}]}`);
+    const retry = await send(`{"items":[{"quantity":1,"productId":${productId}}],"userId":${USER_ID}}`);
+
+    expect(first.statusCode).toBe(201);
+    expect(retry.statusCode).toBe(201);
+    expect(retry.headers["idempotent-replayed"]).toBe("true");
+    expect(retry.json().id).toBe(first.json().id);
+
+    const inv = await getInventory(productId);
+    expect(inv!.reservedQuantity).toBe(1); // one order, not two
+  });
   it("no Idempotency-Key header → creates a new order every time (old behaviour)", async () => {
     const productId = await createTestProduct(10);
     testProductIds.push(productId);

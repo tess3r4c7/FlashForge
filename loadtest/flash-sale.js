@@ -5,7 +5,7 @@
 //   1. Accept exactly 10 orders (201) and reject the rest (409 out of stock)
 //   2. Never sell more than 10 — the atomic UPDATE ... WHERE available >= qty
 //      that we built in Phase 1 is what prevents this
-//   3. Stay fast: p95 under 500ms even under contention
+//   3. Stay reasonably fast: p95 under 1s even with 200 writers on ONE row
 //
 // This is exactly the race condition that a naive "check stock, then deduct"
 // would fail. Our system handles it because the stock check and deduction
@@ -13,7 +13,7 @@
 
 import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
-import { createProduct, placeOrder, validateInventory } from "./helpers.js";
+import { createProduct, placeOrder, printVerifyHint } from "./helpers.js";
 
 // ─── Custom metrics ─────────────────────────────────────────────────────────
 const ordersAccepted = new Counter("orders_accepted");
@@ -50,7 +50,7 @@ export const options = {
 export function setup() {
   const product = createProduct(`Flash Sale ${Date.now()}`, STOCK);
   console.log(`\n🚀 Flash sale starting: ${VIRTUAL_USERS} users fighting for ${STOCK} units of product #${product.id}\n`);
-  return { productId: product.id, stock: STOCK, successfulOrders: 0 };
+  return { productId: product.id, stock: STOCK };
 }
 
 // ─── VU code: every virtual user runs this once ─────────────────────────────
@@ -72,11 +72,9 @@ export default function (data) {
 
 // ─── Teardown: runs once, after all VUs finish ──────────────────────────────
 export function teardown(data) {
-  // k6 doesn't let VUs write to shared `data`, so we can't count accepted
-  // orders in the VU function. Instead we check thresholds + the counter.
-  // The real validation is the thresholds above: orders_accepted should
-  // equal STOCK (10), and orders_rejected should be VIRTUAL_USERS - STOCK.
-  validateInventory(data.productId, data.stock, data);
+  // VUs can't write into `data`, so the accepted count lives in the
+  // orders_accepted counter (see summary). The authoritative check reads
+  // Postgres: run.ps1 calls verify-db.ts with --expect-accepted STOCK.
   console.log(`\nExpected: exactly ${STOCK} accepted, ${VIRTUAL_USERS - STOCK} rejected.`);
-  console.log(`Check the k6 summary above for orders_accepted and orders_rejected counts.\n`);
+  printVerifyHint(data.productId, data.stock, STOCK);
 }

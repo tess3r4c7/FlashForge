@@ -15,6 +15,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+    # Lets other services wait for "accepting connections", not just
+    # "container started" (Postgres takes a few seconds to initialise).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flashforge -d flashforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   rabbitmq:
     # The "-management" variant includes a web dashboard on port 15672
     image: rabbitmq:4-management
@@ -60,6 +68,86 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # ─── Application (Phase 10) ─────────────────────────────────────────────────
+  # Behind the "app" profile, so the everyday dev loop is unchanged:
+  #   docker compose up -d                        → infra only; run the app with `npm run dev`
+  #   docker compose --profile app up -d --build  → the whole system in containers
+  #   docker compose --profile app up -d --scale worker=3   → more workers
+  #
+  # Inside the compose network, services reach each other by SERVICE NAME
+  # (postgres, rabbitmq, redis), never "localhost": localhost would be the
+  # container itself.
+
+  # One-shot job: apply migrations + idempotent seed, then exit. API and
+  # worker only start once it has exited successfully.
+  migrate:
+    profiles: ["app"]
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://flashforge:flashforge_dev@postgres:5432/flashforge
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      target: runtime
+    image: flashforge:local
+    environment: &app-env
+      DATABASE_URL: postgresql://flashforge:flashforge_dev@postgres:5432/flashforge
+      RABBITMQ_URL: amqp://flashforge:flashforge_dev@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      PAYMENT_DELAY_MS: "500"
+      PAYMENT_SUCCESS_RATE: "0.8"
+      RATE_LIMIT_MAX: "5"
+      RATE_LIMIT_WINDOW_MS: "10000"
+      LOG_LEVEL: info
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # Uses the /health endpoint from Phase 7. Node 22 has fetch built in, so
+    # the slim image needs no curl. Only Postgres being down fails the check:
+    # "degraded" (e.g. Redis down) still serves traffic correctly.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>r.json()).then(b=>process.exit(b.postgres==='up'?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    # Graceful shutdown needs time to drain in-flight requests before SIGKILL.
+    stop_grace_period: 20s
+
+  worker:
+    profiles: ["app"]
+    image: flashforge:local
+    command: ["node", "dist/worker.js"]
+    environment: *app-env
+    depends_on:
+      api:
+        condition: service_started  # api's build produces the shared image
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    # The worker exits on purpose if RabbitMQ drops (see worker.ts); this
+    # restart policy is the "supervisor" that brings it back.
+    restart: unless-stopped
+    # In-flight payments get time to finish (they're idempotent if killed,
+    # but a clean finish avoids a redelivery).
+    stop_grace_period: 30s
 
 volumes:
   postgres_data:

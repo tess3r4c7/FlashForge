@@ -61,7 +61,8 @@ const BINDINGS: { queue: string; pattern: string }[] = [
 // After the last retry, the message goes to the DEAD-LETTER QUEUE (".dlq"):
 // parked for a human to inspect and replay (see src/scripts/dlq.ts).
 
-function parseDelays(raw: string | undefined): number[] {
+// Exported for the unit tests (tests/unit/retry-config.test.ts).
+export function parseDelays(raw: string | undefined): number[] {
   const delays = (raw ?? "1000,5000,30000")
     .split(",")
     .map((s) => Number(s.trim()))

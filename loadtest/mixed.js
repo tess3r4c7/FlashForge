@@ -2,14 +2,14 @@
 //
 // Realistic traffic: some users browse products (reads) while others place
 // orders (writes). This tests whether the read-through Redis cache (Phase 6)
-// actually helps: cached reads should be sub-millisecond and shouldn't be
+// actually helps: cached reads should be a few ms at most and shouldn't be
 // affected by write contention on the inventory rows.
 //
 // Split: 80% reads (GET /products), 20% writes (POST /orders).
 
 import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
-import { createProduct, placeOrder, getProducts, getHealth } from "./helpers.js";
+import { createProduct, placeOrder, getProducts, printVerifyHint } from "./helpers.js";
 
 const reads = new Counter("reads_total");
 const writes = new Counter("writes_total");
@@ -42,7 +42,7 @@ export function setup() {
   // Warm the cache with one read
   getProducts();
   console.log(`\n🔀 Mixed workload: 20 VUs for ${DURATION}, 80% reads / 20% writes\n`);
-  return { productId: product.id };
+  return { productId: product.id, stock: STOCK };
 }
 
 export default function (data) {
@@ -65,8 +65,9 @@ export default function (data) {
   sleep(0.1 + Math.random() * 0.2);
 }
 
-export function teardown() {
+export function teardown(data) {
   console.log(`\n🔀 Mixed workload complete.`);
-  console.log(`Check read_latency_ms vs write_latency_ms — reads should be much faster (cached).\n`);
+  console.log(`Check read_latency_ms vs write_latency_ms — reads should be much faster (cached).`);
+  printVerifyHint(data.productId, data.stock);
 }
 

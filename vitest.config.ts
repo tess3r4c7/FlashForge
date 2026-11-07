@@ -1,11 +1,15 @@
 import { defineConfig } from "vitest/config";
 import { getTestDatabaseUrl, getTestRedisUrl } from "./tests/test-db.js";
 
+// Two test projects (Phase 9):
+//   unit         tests/unit/**   pure logic, no Docker needed, runs in ~1s
+//   integration  tests/*.test.ts real Postgres + RabbitMQ + Redis
+//
+//   npm run test:unit          # fast feedback while coding
+//   npm run test:integration   # needs `docker compose up -d`
+//   npm run test:run           # both
 export default defineConfig({
   test: {
-    // Use the "tests/" directory for test files
-    include: ["tests/**/*.test.ts"],
-
     // Longer timeout for integration tests that talk to the database
     testTimeout: 30_000,
 
@@ -13,8 +17,20 @@ export default defineConfig({
     // our concurrency tests share a real database
     fileParallelism: false,
 
-    // Creates + migrates + wipes the test database once before all tests.
-    globalSetup: ["./tests/global-setup.ts"],
+    // `npm run test:coverage` (Phase 10). v8 coverage uses the engine's own
+    // instrumentation: no source transform, so tests behave exactly as usual.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: [
+        "src/generated/**", // Prisma's generated client, not our code
+        "src/server.ts", // process entry points: started as real processes
+        "src/worker.ts", //   in load tests, not imported by Vitest
+        "src/scripts/**", // CLIs (dlq, seed)
+      ],
+      reporter: ["text-summary", "html", "lcov"],
+      reportsDirectory: "coverage",
+    },
 
     env: {
       // Tests use their own database (flashforge_test), see tests/test-db.ts.
@@ -38,5 +54,28 @@ export default defineConfig({
       // with explicit small limits to test the limiter itself.
       RATE_LIMIT_MAX: "1000000",
     },
+
+    projects: [
+      {
+        // `extends: true` = inherit everything above (env, timeout).
+        extends: true,
+        test: {
+          name: "unit",
+          include: ["tests/unit/**/*.test.ts"],
+          // No globalSetup: unit tests must not need Docker. Importing a
+          // module that creates a Prisma/Redis client is fine (both connect
+          // lazily); actually querying one would be a bug in the test.
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "integration",
+          include: ["tests/*.test.ts"],
+          // Creates + migrates + wipes the test database once before all tests.
+          globalSetup: ["./tests/global-setup.ts"],
+        },
+      },
+    ],
   },
 });

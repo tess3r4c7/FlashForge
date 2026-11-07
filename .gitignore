@@ -9,3 +9,5 @@ coverage/
 .agents/
 .claude/
 .windsurf/
+
+loadtest/results/
