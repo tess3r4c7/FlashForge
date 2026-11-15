@@ -6,6 +6,10 @@ import { prisma } from "./lib/prisma.js";
 
 const app = buildApp();
 
+if (process.env.INVENTORY_STRATEGY === "naive") {
+  app.log.warn("INVENTORY_STRATEGY=naive: UNSAFE benchmark baseline, orders CAN oversell");
+}
+
 // PORT comes from the environment in containers / cloud platforms (many of
 // them inject it); 3000 stays the local default.
 const port = Number(process.env.PORT ?? 3000);

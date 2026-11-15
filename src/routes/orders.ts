@@ -5,7 +5,7 @@ import {
   createOrderIdempotent,
   getOrderById,
 } from "../services/order.service.js";
-import { requestPayment } from "../services/payment.service.js";
+import { processPayment, requestPayment } from "../services/payment.service.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import type { RateLimitOptions } from "../lib/rate-limiter.js";
 
@@ -168,6 +168,17 @@ export async function orderRoutes(app: FastifyInstance, opts: OrderRoutesOptions
     },
     async (request, reply) => {
       const order = await requestPayment(request.params.id, request.body.userId);
+
+      // ⚠️ BENCHMARK BASELINE ONLY (PAYMENT_MODE=sync, never set in .env,
+      // compose or tests): charge the gateway INSIDE the HTTP request, the way
+      // Phase 2 worked, so the async design can be measured against it on the
+      // same machine (docs/BENCHMARKS.md, experiment 4). Run it without the
+      // worker; if a worker does pick up the outbox event, processPayment's
+      // duplicate guard skips it (the order is no longer PAYMENT_PROCESSING).
+      if (process.env.PAYMENT_MODE === "sync") {
+        await processPayment(order.id);
+        return reply.status(200).send(await getOrderById(order.id));
+      }
 
       // 202 Accepted = "I've taken your request and will process it, but it
       // isn't finished yet". The standard status for queued/background work.

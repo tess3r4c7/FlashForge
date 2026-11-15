@@ -147,6 +147,26 @@ async function main() {
   const allOk = checks.every(([, ok]) => ok);
   console.log(allOk ? "\nAll inventory invariants hold.\n" : "\nINVENTORY INVARIANT VIOLATED.\n");
 
+  // --out <file>: machine-readable result for the benchmark report.
+  const out = arg("out");
+  if (out) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      out,
+      JSON.stringify(
+        {
+          ...s,
+          stock,
+          oversold: Math.max(0, s.sold + s.open + s.cancelled - stock),
+          allOk,
+          checks: checks.map(([label, ok, detail]) => ({ label, ok, detail })),
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
   await prisma.$disconnect();
   process.exit(allOk ? 0 : 1);
 }

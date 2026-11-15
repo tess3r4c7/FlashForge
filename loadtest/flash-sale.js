@@ -21,8 +21,8 @@ const ordersRejected = new Counter("orders_rejected");
 const orderLatency = new Trend("order_latency_ms");
 
 // ─── Configuration ──────────────────────────────────────────────────────────
-const STOCK = 10;
-const VIRTUAL_USERS = 200;
+const STOCK = Number(__ENV.STOCK || 10);
+const VIRTUAL_USERS = Number(__ENV.VUS || 200);
 
 export const options = {
   scenarios: {

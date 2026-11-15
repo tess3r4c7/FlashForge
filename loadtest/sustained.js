@@ -54,10 +54,11 @@ export default function (data) {
     payLatency.add(payRes.timings.duration);
 
     check(payRes, {
-      "pay accepted": (r) => r.status === 202,
+      // 202 = async (normal); 200 = PAYMENT_MODE=sync benchmark baseline
+      "pay accepted": (r) => r.status === 202 || r.status === 200,
     });
 
-    if (payRes.status === 202) {
+    if (payRes.status === 202 || payRes.status === 200) {
       ordersPaid.add(1);
     }
   } else {

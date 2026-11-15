@@ -39,7 +39,8 @@
     "loadtest:flash": "powershell -ExecutionPolicy Bypass -File loadtest/run.ps1 flash",
     "loadtest:sustained": "powershell -ExecutionPolicy Bypass -File loadtest/run.ps1 sustained",
     "loadtest:mixed": "powershell -ExecutionPolicy Bypass -File loadtest/run.ps1 mixed",
-    "loadtest:verify": "tsx loadtest/verify-db.ts"
+    "loadtest:verify": "tsx loadtest/verify-db.ts",
+    "bench": "powershell -ExecutionPolicy Bypass -File loadtest/benchmark.ps1 && node loadtest/report.mjs"
   },
   "engines": {
     "node": ">=22"

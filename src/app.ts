@@ -1,8 +1,5 @@
 import Fastify, { type FastifyError } from "fastify";
-import {
-  productRoutes,
-  testReserveRoute,
-} from "./routes/products.js";
+import { productRoutes } from "./routes/products.js";
 import { orderRoutes } from "./routes/orders.js";
 import { AppError } from "./lib/errors.js";
 import { closeRedis, connectRedis, isRedisReady } from "./lib/redis.js";
@@ -160,7 +157,6 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.register(productRoutes);
   app.register(orderRoutes, { rateLimit: options.rateLimit ?? rateLimitFromEnv() });
-  app.register(testReserveRoute);
 
   return app;
 }

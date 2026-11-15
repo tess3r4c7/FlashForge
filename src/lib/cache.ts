@@ -40,6 +40,10 @@ import { cacheHitsTotal, cacheMissesTotal } from "./metrics.js";
 const inFlight = new Map<string, Promise<unknown>>();
 
 export async function cached<T>(key: string, ttlSeconds: number, loader: () => Promise<T>): Promise<T> {
+  // TTL <= 0 disables both Redis and single-flight coalescing (used to
+  // benchmark the uncached baseline against the cached path).
+  if (ttlSeconds <= 0) return loader();
+
   const redis = getRedis();
 
   try {

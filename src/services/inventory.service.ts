@@ -17,6 +17,10 @@ export async function reserveInventory(
   quantity: number,
   tx: TransactionClient = prisma,
 ) {
+  if (process.env.INVENTORY_STRATEGY === "naive") {
+    return reserveInventoryNaive(productId, quantity, tx);
+  }
+
   const updatedRows = await tx.$executeRaw`
     UPDATE "Inventory"
     SET
@@ -35,6 +39,40 @@ export async function reserveInventory(
   return tx.inventory.findUnique({
     where: {
       productId,
+    },
+  });
+}
+
+/**
+ * ⚠️ BENCHMARK BASELINE ONLY: deliberately WRONG. Enabled with
+ * INVENTORY_STRATEGY=naive, never set in .env, compose or tests.
+ *
+ * This is the "obvious" implementation most people write first:
+ *
+ *   1. SELECT the inventory row
+ *   2. check available >= quantity in JavaScript
+ *   3. UPDATE ... SET available = <value computed in step 2>
+ *
+ * It looks correct and passes every single-user test. Under concurrency it
+ * breaks: two transactions both read available = 1 in step 1 (Postgres's
+ * default READ COMMITTED doesn't lock on a plain SELECT), both pass the check,
+ * and both write available = 0. Two orders, one unit. The second write
+ * silently overwrites the first (a "lost update"), so the counters even LOOK
+ * healthy afterwards; only comparing them against the order rows reveals it.
+ *
+ * It exists so the load test can measure the bug the atomic version fixes,
+ * on the same machine, with the same harness (see docs/BENCHMARKS.md).
+ */
+async function reserveInventoryNaive(productId: number, quantity: number, tx: TransactionClient) {
+  const inventory = await tx.inventory.findUnique({ where: { productId } });
+  if (!inventory || inventory.availableQuantity < quantity) {
+    throw new ConflictError("Out of stock");
+  }
+  return tx.inventory.update({
+    where: { productId },
+    data: {
+      availableQuantity: inventory.availableQuantity - quantity,
+      reservedQuantity: inventory.reservedQuantity + quantity,
     },
   });
 }
