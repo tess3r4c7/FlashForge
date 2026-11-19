@@ -1,0 +1,40 @@
+{
+  "productId": 443,
+  "name": "Sustained 1794775738463",
+  "available": 218,
+  "reserved": 0,
+  "sold": 282,
+  "open": 0,
+  "cancelled": 0,
+  "orderCount": 282,
+  "stock": 500,
+  "oversold": 0,
+  "allOk": true,
+  "checks": [
+    {
+      "label": "available >= 0",
+      "ok": true,
+      "detail": "218"
+    },
+    {
+      "label": "reserved >= 0",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "label": "no overselling (sold + open <= stock)",
+      "ok": true,
+      "detail": "282 + 0 <= 500"
+    },
+    {
+      "label": "conservation (available + reserved + sold == stock)",
+      "ok": true,
+      "detail": "218 + 0 + 282 = 500"
+    },
+    {
+      "label": "counters match orders (reserved == open units)",
+      "ok": true,
+      "detail": "0 vs 0"
+    }
+  ]
+}

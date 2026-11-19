@@ -1,0 +1,45 @@
+{
+  "productId": 436,
+  "name": "Idempotency unkeyed 1794228470518",
+  "available": 99006,
+  "reserved": 994,
+  "sold": 0,
+  "open": 994,
+  "cancelled": 0,
+  "orderCount": 994,
+  "stock": 100000,
+  "oversold": 0,
+  "allOk": false,
+  "checks": [
+    {
+      "label": "available >= 0",
+      "ok": true,
+      "detail": "99006"
+    },
+    {
+      "label": "reserved >= 0",
+      "ok": true,
+      "detail": "994"
+    },
+    {
+      "label": "no overselling (sold + open <= stock)",
+      "ok": true,
+      "detail": "0 + 994 <= 100000"
+    },
+    {
+      "label": "conservation (available + reserved + sold == stock)",
+      "ok": true,
+      "detail": "99006 + 994 + 0 = 100000"
+    },
+    {
+      "label": "counters match orders (reserved == open units)",
+      "ok": true,
+      "detail": "994 vs 994"
+    },
+    {
+      "label": "exactly 50 orders accepted",
+      "ok": false,
+      "detail": "994"
+    }
+  ]
+}

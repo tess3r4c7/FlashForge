@@ -1,0 +1,151 @@
+{
+    "metrics": {
+        "orders_created_201": {
+            "count": 1000,
+            "rate": 280.28774676428117
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 1174.0458,
+            "p(95)": 1512.2361,
+            "p(99)": 1876.3089,
+            "max": 2361.8785,
+            "avg": 252.32187572427594,
+            "med": 40.5851
+        },
+        "http_req_waiting": {
+            "avg": 252.03780069930076,
+            "med": 40.3451,
+            "p(90)": 1172.3301,
+            "p(95)": 1512.2361,
+            "p(99)": 1876.3089,
+            "max": 2357.7755
+        },
+        "data_received": {
+            "count": 558176,
+            "rate": 156449.8933378994
+        },
+        "http_req_duration": {
+            "med": 40.5851,
+            "p(90)": 1174.0458,
+            "p(95)": 1512.2361,
+            "p(99)": 1876.3089,
+            "max": 2361.8785,
+            "avg": 252.32187572427594
+        },
+        "http_req_blocked": {
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 1.1436,
+            "p(99)": 3.1558,
+            "max": 919.1963,
+            "avg": 1.0610887112887106
+        },
+        "data_sent": {
+            "rate": 62506.97040590234,
+            "count": 223010
+        },
+        "vus_max": {
+            "value": 100,
+            "min": 100,
+            "max": 100
+        },
+        "vus": {
+            "value": 100,
+            "min": 100,
+            "max": 100
+        },
+        "http_reqs": {
+            "count": 1001,
+            "rate": 280.5680345110455
+        },
+        "http_req_sending": {
+            "p(95)": 0.5414,
+            "p(99)": 1.1436,
+            "max": 3.7764,
+            "avg": 0.06287542457542458,
+            "med": 0,
+            "p(90)": 0
+        },
+        "iteration_duration": {
+            "max": 2362.7726,
+            "avg": 252.87167799999997,
+            "med": 40.83495,
+            "p(90)": 1177.9240600000005,
+            "p(95)": 1513.5709100000001,
+            "p(99)": 1877.3096
+        },
+        "http_req_connecting": {
+            "p(99)": 2.1007,
+            "max": 5.0343,
+            "avg": 0.11967702297702296,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 1.0087
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1001,
+            "value": 0
+        },
+        "iterations": {
+            "count": 1000,
+            "rate": 280.28774676428117
+        },
+        "http_req_receiving": {
+            "avg": 0.22119960039960054,
+            "med": 0,
+            "p(90)": 0.5991,
+            "p(95)": 1.2408,
+            "p(99)": 3.7957,
+            "max": 6.1884
+        },
+        "http_req_tls_handshaking": {
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "avg": 0,
+            "med": 0,
+            "p(90)": 0
+        },
+        "checks": {
+            "passes": 1001,
+            "fails": 0,
+            "value": 1
+        }
+    },
+    "setup_data": {
+        "productId": 435,
+        "run": "1794228461145"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "name": "setup",
+                "path": "::setup",
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {},
+                "checks": {
+                        "product created": {
+                            "name": "product created",
+                            "path": "::setup::product created",
+                            "id": "9dfaa655d864b19f6508fde73bd38724",
+                            "passes": 1,
+                            "fails": 0
+                        }
+                    }
+            }
+        },
+        "checks": {
+            "201 (new or replayed)": {
+                "path": "::201 (new or replayed)",
+                "id": "6a1b2591097dd514a9aaa23b5939ab00",
+                "passes": 1000,
+                "fails": 0,
+                "name": "201 (new or replayed)"
+            }
+        }
+    }
+}

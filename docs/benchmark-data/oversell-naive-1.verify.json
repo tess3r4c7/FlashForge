@@ -1,0 +1,40 @@
+{
+  "productId": 370,
+  "name": "Flash Sale 1794227820574",
+  "available": 0,
+  "reserved": 10,
+  "sold": 0,
+  "open": 126,
+  "cancelled": 0,
+  "orderCount": 126,
+  "stock": 10,
+  "oversold": 116,
+  "allOk": false,
+  "checks": [
+    {
+      "label": "available >= 0",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "label": "reserved >= 0",
+      "ok": true,
+      "detail": "10"
+    },
+    {
+      "label": "no overselling (sold + open <= stock)",
+      "ok": false,
+      "detail": "0 + 126 <= 10"
+    },
+    {
+      "label": "conservation (available + reserved + sold == stock)",
+      "ok": true,
+      "detail": "0 + 10 + 0 = 10"
+    },
+    {
+      "label": "counters match orders (reserved == open units)",
+      "ok": false,
+      "detail": "10 vs 126"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+    "date":  "2026-11-16 02:15",
+    "cpu":  "AMD Ryzen 5 5600H with Radeon Graphics",
+    "cores":  6,
+    "threads":  12,
+    "ramGb":  15,
+    "os":  "Microsoft Windows 11 Home Single Language",
+    "node":  "v22.14.0",
+    "k6":  "k6.exe v2.3.0 (commit/e088784614, go1.26.8, windows/amd64)",
+    "note":  "API, worker, k6 and all Docker containers on ONE laptop (they compete for CPU)."
+}

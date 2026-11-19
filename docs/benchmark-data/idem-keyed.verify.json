@@ -1,0 +1,45 @@
+{
+  "productId": 435,
+  "name": "Idempotency keyed 1794228460174",
+  "available": 99950,
+  "reserved": 50,
+  "sold": 0,
+  "open": 50,
+  "cancelled": 0,
+  "orderCount": 50,
+  "stock": 100000,
+  "oversold": 0,
+  "allOk": true,
+  "checks": [
+    {
+      "label": "available >= 0",
+      "ok": true,
+      "detail": "99950"
+    },
+    {
+      "label": "reserved >= 0",
+      "ok": true,
+      "detail": "50"
+    },
+    {
+      "label": "no overselling (sold + open <= stock)",
+      "ok": true,
+      "detail": "0 + 50 <= 100000"
+    },
+    {
+      "label": "conservation (available + reserved + sold == stock)",
+      "ok": true,
+      "detail": "99950 + 50 + 0 = 100000"
+    },
+    {
+      "label": "counters match orders (reserved == open units)",
+      "ok": true,
+      "detail": "50 vs 50"
+    },
+    {
+      "label": "exactly 50 orders accepted",
+      "ok": true,
+      "detail": "50"
+    }
+  ]
+}

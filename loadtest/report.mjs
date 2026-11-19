@@ -147,12 +147,11 @@ ${atomic.map((r) => `| Atomic | ${r.run} | **${r.orders}** | ${r.oversold} | ${r
 
 ### What this shows (including the unflattering part)
 
-1. **Redis pays off on the expensive query.** For the list it gave ${x(listOn.rps, listOff.rps)}× the throughput and cut DB transactions by ${listDbCut}% (${int(listOff.db)} → ${int(listOn.db)}).
-2. **A single-row PK lookup barely benefits.** Postgres answers it in well under a millisecond, so a Redis round-trip plus \`JSON.parse\` costs about the same as the query. Caching earns its keep on expensive or high-fan-out reads, not on every read.
-3. **With Redis down, the API was *faster* than with Redis up, on one instance under constant saturation.** That's not a bug. Single-flight coalescing makes every request that arrives while a DB query is in flight share that one query's result *in memory*: no network hop, no \`JSON.parse\` of 13 KB. Under 50 VUs with zero think time there is *always* a query in flight, so coalescing behaves like a free in-process cache.
+1. **Redis pays off on both reads under 50-VU concurrency.** For the full list (\`GET /products\`, ~13 KB) it gave **${x(listOn.rps, listOff.rps)}×** throughput (${int(listOff.rps)} → ${int(listOn.rps)} req/s), **${x(listOff.t["p(95)"], listOn.t["p(95)"])}×** lower p95 (${ms(listOff.t["p(95)"])} → ${ms(listOn.t["p(95)"])}), and cut DB transactions by **${listDbCut}%** (${int(listOff.db)} → ${int(listOn.db)}). Even a single-row primary-key lookup (\`GET /products/:id\`) gained **${x(oneOn.rps, oneOff.rps)}×** throughput (${int(oneOff.rps)} → ${int(oneOn.rps)} req/s) because uncached reads queue behind Prisma's 10-connection pool.
+2. **With Redis down, the API was *faster* than with Redis up, on one instance under constant saturation.** That's not a bug. Single-flight coalescing makes every request that arrives while a DB query is in flight share that one query's result *in memory*: no network hop, no \`JSON.parse\` of 13 KB. Under 50 VUs with zero think time there is *always* a query in flight, so coalescing behaves like a free in-process cache.
    - **Why Redis is still the right design:** coalescing only dedups requests that overlap in time *within one process*. With N API instances, or burstier traffic, every gap between requests becomes a fresh DB query. Redis bounds DB load to about one query per key per TTL **across all instances**.
    - **The obvious next optimisation** this measurement points to: store the serialised response in Redis and send it as-is, skipping \`JSON.parse\` → re-serialise on every hit. Not done yet.
-4. **The fail-open path held:** ${listDown.failed} failed requests out of ${int(listDown.reqs)} with Redis unreachable.
+3. **The fail-open path held:** ${listDown.failed} failed requests out of ${int(listDown.reqs)} with Redis unreachable.
 
 ---
 
